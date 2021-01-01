@@ -47,8 +47,7 @@ public class MainActivity extends AppCompatActivity {
 
         final StoreAdapter adapter = new StoreAdapter();
         recyclerView.setAdapter(adapter);
-
-
+        
         //UI변경 감지 후 UPDATE
         viewModel = new ViewModelProvider(this).get(MainViewModel.class);
         viewModel.itemLiveData.observe(this, stores -> {

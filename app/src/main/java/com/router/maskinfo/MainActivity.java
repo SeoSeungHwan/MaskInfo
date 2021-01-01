@@ -7,7 +7,10 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import android.Manifest;
+import android.annotation.SuppressLint;
 import android.graphics.Color;
+import android.location.Location;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -16,8 +19,15 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.gun0912.tedpermission.PermissionListener;
+import com.gun0912.tedpermission.TedPermission;
 import com.router.maskinfo.model.Store;
 import com.router.maskinfo.model.StoreInfo;
 import com.router.maskinfo.repository.MaskService;
@@ -36,26 +46,77 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = MainActivity.class.getSimpleName();
     private MainViewModel viewModel;
+    private FusedLocationProviderClient fusedLocationClient;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
+        viewModel = new ViewModelProvider(this).get(MainViewModel.class);
+
+        PermissionListener permissionlistener = new PermissionListener() {
+            @Override
+            public void onPermissionGranted() {
+                performAction();
+            }
+
+            @Override
+            public void onPermissionDenied(List<String> deniedPermissions) {
+                Toast.makeText(MainActivity.this, "Permission Denied\n" + deniedPermissions.toString(), Toast.LENGTH_SHORT).show();
+            }
+
+
+        };
+
+        TedPermission.with(this)
+                .setPermissionListener(permissionlistener)
+                .setDeniedMessage("If you reject permission,you can not use this service\n\nPlease turn on permissions at [Setting] > [Permission]")
+                .setPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+                .check();
+
+
+    }
+
+    @SuppressLint("MissingPermission")
+    private void performAction() {
+        fusedLocationClient.getLastLocation()
+                .addOnSuccessListener(this, location -> {
+                    // Got last known location. In some rare situations this can be null.
+                    if (location != null) {
+                        Log.d(TAG, "getLatitude: "+ location.getLatitude());
+                        Log.d(TAG, "getLongitude: " +location.getLongitude());
+
+                        location.setLatitude(37.188078);
+                        location.setLongitude(127.043002);
+                        viewModel.location = location;
+                        viewModel.fetchStoreInfo();
+                    }
+                });
+
         RecyclerView recyclerView = findViewById(R.id.recycler_view);
         recyclerView.setLayoutManager(new LinearLayoutManager(this, RecyclerView.VERTICAL, false));
 
         final StoreAdapter adapter = new StoreAdapter();
         recyclerView.setAdapter(adapter);
-        
+
         //UI변경 감지 후 UPDATE
-        viewModel = new ViewModelProvider(this).get(MainViewModel.class);
+
         viewModel.itemLiveData.observe(this, stores -> {
             adapter.updateItems(stores);
             getSupportActionBar().setTitle("마스크 재고 있는 곳 : " + stores.size());
         });
 
-
+        ProgressBar progressBar = findViewById(R.id.progressBar);
+        viewModel.loadingLiveData.observe(this, isLoading->{
+            if(isLoading){
+                progressBar.setVisibility(View.VISIBLE);
+            }else{
+                progressBar.setVisibility(View.GONE);
+            }
+        });
     }
 
     @Override
@@ -102,7 +163,7 @@ class StoreAdapter extends RecyclerView.Adapter<StoreAdapter.StoreViewHolder> {
         Store store = mItems.get(position);
         holder.nameTextView.setText(store.getName());
         holder.addressTextView.setText(store.getAddr());
-        holder.distanceTextView.setText("1.0km");
+        holder.distanceTextView.setText(String.format("%.2fkm",store.getDistance()));
 
         String remainStat = "충분";
         String count = "100개이상";

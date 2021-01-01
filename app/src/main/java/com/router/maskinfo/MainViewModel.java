@@ -1,5 +1,6 @@
 package com.router.maskinfo;
 
+import android.location.Location;
 import android.util.Log;
 
 import androidx.lifecycle.MutableLiveData;
@@ -23,6 +24,9 @@ public class MainViewModel extends ViewModel {
 
     private static final String TAG = MainViewModel.class.getSimpleName();
     public MutableLiveData<List<Store>> itemLiveData = new MutableLiveData<>();
+    public MutableLiveData<Boolean> loadingLiveData = new MutableLiveData<>();
+
+    public Location location;
 
     private Retrofit retrofit = new Retrofit.Builder()
             .baseUrl(MaskService.BASE_URL)
@@ -31,30 +35,40 @@ public class MainViewModel extends ViewModel {
 
     private MaskService service = retrofit.create(MaskService.class);
 
-    private Call<StoreInfo> storeInfoCall = service.fetchStoreInfo();
+    public void fetchStoreInfo() {
+        //로딩 시작하고
+        loadingLiveData.setValue(true);
+        service.fetchStoreInfo(location.getLatitude(), location.getLongitude())
+                .enqueue(new Callback<StoreInfo>() {
+                    @Override
+                    public void onResponse(Call<StoreInfo> call, Response<StoreInfo> response) {
+                        Log.d(TAG, "onResponse: refresh");
+                        List<Store> items = response.body().getStores()
+                                .stream()
+                                .filter(item -> item.getRemainStat() != null)
+                                .filter(item -> !item.getRemainStat().equals("empty"))
+                                .collect(Collectors.toList());
 
-    public MainViewModel(){
-        fetchStoreInfo();
-    }
+                        for(Store store : items){
+                            double distance = LocationDistance.distance(location.getLatitude(),location.getLongitude(),store.getLat(),store.getLng(),"k");
+                            store.setDistance(distance);
+                        }
 
-    public void fetchStoreInfo(){
-        storeInfoCall.clone().enqueue(new Callback<StoreInfo>() {
-            @Override
-            public void onResponse(Call<StoreInfo> call, Response<StoreInfo> response) {
-                Log.d(TAG, "onResponse: refresh");
-                List<Store> items = response.body().getStores()
-                        .stream()
-                        .filter(item -> item.getRemainStat() != null)
-                        .collect(Collectors.toList());
+                        Collections.sort(items);
 
-                itemLiveData.postValue(items);
-            }
+                        itemLiveData.postValue(items);
+                        //로딩 끝
+                        loadingLiveData.postValue(false);
+                    }
 
-            @Override
-            public void onFailure(Call<StoreInfo> call, Throwable t) {
-                Log.e(TAG, "onFailure: ", t);
-                itemLiveData.postValue(Collections.emptyList());
-            }
-        });
+                    @Override
+                    public void onFailure(Call<StoreInfo> call, Throwable t) {
+                        Log.e(TAG, "onFailure: ", t);
+                        itemLiveData.postValue(Collections.emptyList());
+
+                        loadingLiveData.postValue(false);
+                        //실패했을 때 로딩 끝
+                    }
+                });
     }
 }
